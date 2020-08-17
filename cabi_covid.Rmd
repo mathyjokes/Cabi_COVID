@@ -1,0 +1,202 @@
+---
+title: "cabi_covid"
+output: html_document
+---
+
+Import required libraries
+```{r}
+library(tidyverse)
+library(readr)
+library(readxl)
+library(janitor)
+library(downloader)
+library(rvest)
+library(lubridate)
+```
+
+Download DMV COVID Data. Plot a time series.
+```{r}
+dmv_codes <- read_xlsx('DMV_Zipcodes.xlsx')
+
+############### Read and reformat DC COVID data ###############
+covid_dc <- read_xlsx('DC-COVID-19-Data-for-August-15-2020.xlsx') %>% 
+  rename(result_type = '...2') %>% 
+  filter(result_type == "Total Positives") %>% 
+  select(-1) %>% 
+  mutate_all(as.numeric) %>% 
+  pivot_longer(cols = -1, names_to = "date") %>% 
+  select(date, value) %>% 
+  mutate(date = as.Date(as.numeric(date), origin = '1900-01-01')) %>% 
+  rename(total_positive = value) %>% 
+  mutate(state = 'DC')
+covid_dc$new_cases <- 0
+for(i in 2:nrow(covid_dc)){
+  j <- i - 1
+  covid_dc$new_cases[i] <- covid_dc$total_positive[i] - covid_dc$total_positive[j]
+}
+
+############### Read and reformat MD COVID data ###############
+covid_md <- read_csv('MDCOVID19_MASTER_ZIP_CODE_CASES.csv') %>% 
+  filter(ZIP_CODE %in% dmv_codes$area_code) %>% 
+  summarize_all(~sum(., na.rm = T)) %>% 
+  pivot_longer(cols = -c(1,2), names_to = "date") %>% 
+  mutate(date = str_replace_all(date, 'F', '0')) %>% 
+  mutate(date = str_replace_all(date, 'total', '')) %>% 
+  mutate(date = str_replace_all(date, '_', '/')) %>% 
+  mutate(date = as.Date(date, format = '%m/%d/%Y')) %>% 
+  select(date, value) %>% 
+  rename(total_positive = value) %>% 
+  mutate(state = 'MD')
+covid_md$new_cases <- 0
+for(i in 2:nrow(covid_md)){
+  j <- i - 1
+  covid_md$new_cases[i] <- covid_md$total_positive[i] - covid_md$total_positive[j]
+}
+
+
+############### Read and reformat VA COVID data ###############
+covid_va <- read_csv('VDH-COVID-19-PublicUseDataset-Cases.csv') %>% 
+  clean_names() %>% 
+  filter(vdh_health_district %in% dmv_codes$county) %>% 
+  group_by(report_date) %>% 
+  summarize(total_positive = sum(total_cases, na.rm = T)) %>% 
+  mutate(date = as.Date(report_date, format = '%m/%d/%Y')) %>% 
+  select(date, total_positive) %>% 
+  mutate(state = 'VA')
+covid_va$new_cases <- 0
+for(i in 2:nrow(covid_va)){
+  j <- i - 1
+  covid_va$new_cases[i] <- covid_va$total_positive[i] - covid_va$total_positive[j]
+}
+
+############### Combine DMV COVID rates from dates with info from all 3 areas ###############
+covid_dmv <- bind_rows(covid_dc, covid_md, covid_va) %>% 
+  filter(date > '2020-04-10')
+
+# DC - March 9
+# VA - March 17
+# MD - April 11
+
+ggsave('new_cases_dmv.png',
+covid_dmv %>% 
+  ggplot(aes(x = date, y = new_cases, group = state, color = state)) +
+  geom_path() +
+  labs(title = "New COVID-19 Cases per Day* in DC-MD-VA Area",
+       caption = '*Data from April 11 - August 17, 2020',
+       x = 'Date',
+       y = 'Number of Cases') +
+  scale_y_continuous(labels = function(x) format(x, big.mark = ",",
+                                                       scientific = FALSE))
+, height = 7, width = 10)
+```
+
+Download Cabi Data. Plot a time series.
+```{r}
+############### Unzip the Cabi files ###############
+cabi_months <- list.files('cabi_data/', pattern = 'zip')
+for(month in cabi_months){
+  unzip (paste0('cabi_data/',month), exdir = 'cabi_data')
+}
+
+############### Read in the csvs ###############
+cabi_files <- list.files('cabi_data/', pattern = 'csv')
+cabi_data <- c()
+for(file in cabi_files){
+  temp <- read_csv(paste0('cabi_data/', file)) %>% 
+    mutate(file = file) %>% 
+    mutate_all(as.character)
+  cabi_data <- bind_rows(cabi_data, temp)
+}
+
+cabi_data <- cabi_data %>% 
+  clean_names() %>% 
+  unite(col = 'start_date', c(start_date, started_at), na.rm = T) %>% 
+  unite(col = 'member_type', c(member_type, member_casual), na.rm = T) %>% 
+  mutate(start_date = as.Date(start_date))
+
+##### Write a csv because that processing took a long time!! #####
+write.csv(cabi_data, 'full_cabi_data.csv')
+
+
+
+######## Note that 2019 July and Aug data was corrupted and could not be processed ########
+ggsave('cabi_ridership_per_memtype.png',
+cabi_data %>% 
+  mutate(member_type = tolower(member_type)) %>% 
+  group_by(member_type) %>% 
+  count(start_date, name = "count") %>% 
+  filter(!is.na(start_date)) %>% 
+  ggplot(aes(x = start_date, y = count, group = member_type, color = member_type)) +
+  geom_path() +
+  labs(title = "Capital Bikeshare Ridership, January 2018 - July 2020",
+       x = 'Date',
+       y = 'Number of Rides') +
+  scale_y_continuous(labels = function(x) format(x, big.mark = ",",
+                                                       scientific = FALSE))
+, height = 7, width = 10)
+
+ggsave('cabi_ridership_per_memtype_2020.png',
+cabi_data %>% 
+  mutate(member_type = tolower(member_type)) %>% 
+  filter(start_date >= '2020-01-01') %>% 
+  group_by(member_type) %>% 
+  count(start_date, name = "count") %>% 
+  filter(!is.na(start_date)) %>% 
+  ggplot(aes(x = start_date, y = count, group = member_type, color = member_type)) +
+  geom_path() +
+  labs(title = "Capital Bikeshare Ridership, 2020",
+       x = 'Date',
+       y = 'Number of Rides') +
+  scale_y_continuous(labels = function(x) format(x, big.mark = ",",
+                                                       scientific = FALSE))
+, height = 7, width = 10)
+
+ggsave('cabi_ridership_per_memtype_April_2020.png',
+cabi_data %>% 
+  mutate(member_type = tolower(member_type)) %>% 
+  filter(start_date >= '2020-04-01') %>% 
+  group_by(member_type) %>% 
+  count(start_date, name = "count") %>% 
+  filter(!is.na(start_date)) %>% 
+  ggplot(aes(x = start_date, y = count, group = member_type, color = member_type)) +
+  geom_path() +
+  labs(title = "Capital Bikeshare Ridership, April - July 2020",
+       x = 'Date',
+       y = 'Number of Rides') +
+  scale_y_continuous(labels = function(x) format(x, big.mark = ",",
+                                                       scientific = FALSE))
+, height = 7, width = 10)
+
+ggsave('cabi_total_ridership.png',
+cabi_data %>% 
+  count(start_date, name = "count") %>% 
+  filter(!is.na(start_date)) %>% 
+  ggplot(aes(x = start_date, y = count)) +
+  geom_path() +
+  labs(title = "Capital Bikeshare Ridership, January 2018 - July 2019",
+       x = 'Date',
+       y = 'Number of Rides') +
+  scale_y_continuous(labels = function(x) format(x, big.mark = ",",
+                                                       scientific = FALSE))
+, height = 7, width = 10)
+
+ggsave('ridership_per_month_comparison.png',
+cabi_data %>% 
+  mutate(month = month(start_date, label = T)) %>% 
+  mutate(year = as.character(year(start_date))) %>% 
+  filter(!is.na(month)) %>% 
+  group_by(year) %>% 
+  count(month, name = "count") %>% 
+    ggplot(aes(x = month, y = count, group = year, color = year)) +
+    geom_path() +
+    labs(title = "Capital Bikeshare Ridership by Month",
+       x = 'Month',
+       y = 'Number of Rides') +
+    scale_y_continuous(labels = function(x) format(x, big.mark = ",",
+                                                       scientific = FALSE))
+, height = 7, width = 10)
+
+```
+
+
+
