@@ -1,11 +1,11 @@
 # How has the COVID-19 pandemic impacted Capital Bikeshare ridership?
 
 The COVID-19 pandemic has had huge effects on American society.
-One unforseen impact is the ride of bike ridership throughout the country (and the world!): 
-ome bike shops are having a hard time keeping up with demand. 
+One unforseen impact is the rate of bike ridership throughout the country (and the world!): 
+Some bike shops are even having a hard time keeping up with demand. 
 (Read about it in the NYT: https://www.nytimes.com/2020/05/18/nyregion/bike-shortage-coronavirus.html)
 
-How have these effects impacted shared bike ridership?
+How have these effects impacted shared bike ridership, like the Capital Bikeshare system in the Washington DC area?
 
 First, let's take a look of COVID-19 rates in the DC-MD-VA area (DC and suburbs of DC).
 This data  was collected at the state level from the following websites:
